@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 from skimage import color
 import base64
 from io import BytesIO
@@ -26,7 +26,6 @@ def get_closest_color_lab(R, G, B):
     return colors.loc[idx, "color_name"], delta_e
 
 def get_text_color(rgb):
-    # Compute luminance for deciding text color (white or black)
     r, g, b = rgb
     luminance = (0.299*r + 0.587*g + 0.114*b)/255
     return "black" if luminance > 0.6 else "white"
@@ -49,23 +48,30 @@ if uploaded_file:
     img_np = np.array(img)
     h, w = img_np.shape[:2]
 
-    # Initial slider positions
+    # Set initial slider values to center pixel
     x_init = w // 2
     y_init = h // 2
 
-    # Layout: Info on left, Images and controls on right
+    # Layout: Info on left, images + sliders on right
     col_info, col_right = st.columns([1, 2])
 
     with col_info:
         st.write(f"**Image Size:** {w} x {h} (Width x Height)")
 
     with col_right:
+        # Two columns inside right side: image(s) and sliders side by side
         img_col, control_col = st.columns([3, 1])
+
+        with img_col:
+            # Sliders must be outside img_col to keep them sticky and interactive, so store values temporarily
+            pass
 
         with control_col:
             st.markdown("### Select Pixel Coordinates")
             x = st.slider("X position (width)", 2, w - 3, x_init)
             y = st.slider("Y position (height)", 2, h - 3, y_init)
+
+        # After we have x, y, proceed to update images accordingly
 
         # Compute avg color on 5x5 region around (x,y)
         region = img_np[y-2:y+3, x-2:x+3]
@@ -75,17 +81,31 @@ if uploaded_file:
         color_name, delta_e = get_closest_color_lab(R, G, B)
         text_color = get_text_color((R, G, B))
 
-        # Draw pointer with crosshair on copy of original image
+        # Draw pointer with crosshair on a copy of the original image
         marked_img = img.copy()
         draw = ImageDraw.Draw(marked_img)
-        pointer_radius = 5
+
+        pointer_radius = 6
+        # Draw white outline first for visibility
+        draw.ellipse(
+            (x - pointer_radius - 1, y - pointer_radius - 1, x + pointer_radius + 1, y + pointer_radius + 1),
+            fill='white'
+        )
+        # Then red circle on top
         draw.ellipse(
             (x - pointer_radius, y - pointer_radius, x + pointer_radius, y + pointer_radius),
-            fill='red', outline='white'
+            fill='red'
         )
-        crosshair_length = 7
-        draw.line((x - crosshair_length, y, x + crosshair_length, y), fill='white', width=2)
-        draw.line((x, y - crosshair_length, x, y + crosshair_length), fill='white', width=2)
+        # Draw crosshair lines with white outline for visibility
+        crosshair_length = 8
+        line_width = 3
+        # horizontal white thicker line as outline
+        draw.line((x - crosshair_length, y, x + crosshair_length, y), fill='white', width=line_width+2)
+        # vertical white thicker line as outline
+        draw.line((x, y - crosshair_length, x, y + crosshair_length), fill='white', width=line_width+2)
+        # thinner red lines on top
+        draw.line((x - crosshair_length, y, x + crosshair_length, y), fill='red', width=line_width)
+        draw.line((x, y - crosshair_length, x, y + crosshair_length), fill='red', width=line_width)
 
         zoom_patch = Image.fromarray(region).resize((120, 120), resample=Image.NEAREST)
         zoom_patch_b64 = pil_image_to_base64(zoom_patch)
@@ -113,7 +133,7 @@ if uploaded_file:
                 unsafe_allow_html=True,
             )
 
-    # Show detected color details below the layout (full width)
+    # Show detected color details below everything
     st.markdown(f"""
         <div style="
             padding: 20px;
