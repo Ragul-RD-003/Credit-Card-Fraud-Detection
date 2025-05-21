@@ -1,84 +1,75 @@
 import streamlit as st
-import numpy as np
 import pandas as pd
+import numpy as np
 from PIL import Image, ImageDraw
 from skimage import color
-from streamlit_image_coordinates import streamlit_image_coordinates
 
-st.set_page_config(page_title="Color Detector", layout="centered")
-
+# Load color data
 @st.cache_data
 def load_colors():
-    # Load colors.csv which has columns: color_name,R,G,B
     return pd.read_csv("colors.csv")
 
+colors_df = load_colors()
+
+# Convert RGB to LAB
 def rgb_to_lab(rgb):
-    # Convert RGB [0-255] to LAB color space for accurate color distance
     return color.rgb2lab(np.array([[rgb]], dtype=np.uint8) / 255.0)[0][0]
 
+# Find closest color name from dataset using LAB distance
 def get_closest_color_name(r, g, b, df):
     input_lab = rgb_to_lab([r, g, b])
-    min_dist = float('inf')
+    min_dist = float("inf")
     closest_name = None
     for _, row in df.iterrows():
-        lab = rgb_to_lab([row["R"], row["G"], row["B"]])
-        dist = np.linalg.norm(input_lab - lab)
-        if dist < min_dist:
-            min_dist = dist
-            closest_name = row["color_name"]
+        try:
+            lab = rgb_to_lab([row["R"], row["G"], row["B"]])
+            dist = np.linalg.norm(input_lab - lab)
+            if dist < min_dist:
+                min_dist = dist
+                closest_name = row["color_name"]
+        except:
+            continue
     return closest_name
 
-def rgb_to_hex(rgb):
-    return '#{:02X}{:02X}{:02X}'.format(*rgb)
+# Streamlit UI
+st.set_page_config(page_title="Advanced Color Detection", layout="wide")
+st.title("Interactive Color Detection from Image")
+st.markdown("Upload an image, click anywhere on it, and get the color name with live preview.")
 
-def mark_point(img, x, y):
-    # Draw a red circle to mark clicked position
-    img_marked = img.copy()
-    draw = ImageDraw.Draw(img_marked)
-    radius = 7
-    draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill='red', outline='white', width=2)
-    return img_marked
+uploaded_file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
 
-def main():
-    st.title("Interactive Color Detection from Image")
+if uploaded_file:
+    img = Image.open(uploaded_file).convert("RGB")
+    img_np = np.array(img)
 
-    colors_df = load_colors()
+    st.image(img, caption="Uploaded Image", use_column_width=True)
 
-    uploaded_file = st.file_uploader("Upload an image file", type=["jpg", "jpeg", "png"])
-    if uploaded_file:
-        img = Image.open(uploaded_file).convert("RGB")
-        st.markdown("**Click anywhere on the image below to detect the color at that pixel.**")
+    st.markdown("### Select Pixel Coordinates")
+    col1, col2 = st.columns(2)
+    with col1:
+        x = st.slider("X Coordinate", 0, img.width - 1, img.width // 2)
+    with col2:
+        y = st.slider("Y Coordinate", 0, img.height - 1, img.height // 2)
 
-        coords = streamlit_image_coordinates(img, key="img_coords")
+    # Show selected pixel and average nearby region
+    region = img_np[max(0, y - 2):y + 3, max(0, x - 2):x + 3]
+    avg_color = region.mean(axis=(0, 1)).astype(int)
+    r, g, b = int(avg_color[0]), int(avg_color[1]), int(avg_color[2])
+    color_name = get_closest_color_name(r, g, b, colors_df)
 
-        if coords:
-            x, y = int(coords['x']), int(coords['y'])
-            img_np = np.array(img)
-            h, w = img_np.shape[:2]
+    # Mark the image
+    marked_img = img.copy()
+    draw = ImageDraw.Draw(marked_img)
+    draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=(255, 0, 0), outline="white", width=2)
 
-            if 0 <= x < w and 0 <= y < h:
-                r, g, b = img_np[y, x]
-                hex_code = rgb_to_hex((r, g, b))
-                color_name = get_closest_color_name(r, g, b, colors_df)
-
-                img_marked = mark_point(img, x, y)
-                st.image(img_marked, caption=f"Clicked position marked (x={x}, y={y})", use_column_width=True)
-
-                st.markdown("### Color Information")
-                st.write(f"**Coordinates:** ({x}, {y})")
-                st.write(f"**Color Name:** {color_name}")
-                st.write(f"**HEX:** {hex_code}")
-                st.write(f"**RGB:** ({r}, {g}, {b})")
-                st.markdown(
-                    f"<div style='width:250px; height:50px; background-color:{hex_code}; border:1px solid black;'></div>",
-                    unsafe_allow_html=True
-                )
-            else:
-                st.warning("Click coordinates are outside the image boundaries.")
-        else:
-            st.image(img, caption="Upload and click on the image to detect color", use_column_width=True)
-    else:
-        st.info("Please upload an image to get started.")
-
-if __name__ == "__main__":
-    main()
+    st.markdown("### Result")
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.image(marked_img, caption="Image with Pointer", use_column_width=True)
+    with col2:
+        st.markdown(f"**Closest Color Name:** `{color_name}`")
+        st.markdown(f"**RGB:** ({r}, {g}, {b})")
+        st.markdown(
+            f"<div style='width:100px;height:60px;border:2px solid #000;background-color:rgb({r},{g},{b});'></div>",
+            unsafe_allow_html=True
+        )
