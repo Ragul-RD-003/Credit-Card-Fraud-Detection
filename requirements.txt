@@ -5,3 +5,4 @@ pandas
 Pillow
 scikit-image
 streamlit-image-coordinates
+scikit-learn
