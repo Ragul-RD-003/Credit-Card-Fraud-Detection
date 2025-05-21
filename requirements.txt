@@ -4,3 +4,4 @@ numpy
 pandas
 Pillow
 scikit-image
+streamlit-image-coordinates
