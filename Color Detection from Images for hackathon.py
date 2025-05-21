@@ -12,25 +12,21 @@ st.set_page_config(page_title="Unique Smart Color Detector", layout="wide", init
 # ========== STYLES ==========
 st.markdown("""
 <style>
-/* Dark mode base */
 body {
     background-color: #121212;
     color: #e0e0e0;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
-/* Sidebar */
 .css-1d391kg {
     background: #1f1f1f !important;
     color: #ddd !important;
     border-right: 2px solid #333;
 }
-/* Sidebar header */
 h2 {
     color: #61dafb;
     font-weight: 700;
     margin-bottom: 12px;
 }
-/* Main container cards */
 .card {
     background: #1e1e1e;
     padding: 24px;
@@ -44,8 +40,6 @@ h2 {
     transform: translateY(-6px);
     box-shadow: 0 16px 40px rgba(97, 218, 251, 0.45);
 }
-
-/* Big color preview block */
 .color-preview {
     border-radius: 20px;
     padding: 40px 0;
@@ -57,15 +51,11 @@ h2 {
     margin-bottom: 16px;
     user-select:none;
 }
-
-/* Text small */
 .text-small {
     font-size: 1.1rem;
     font-weight: 500;
     color: #a0a0a0;
 }
-
-/* Swatch */
 .swatch {
     height: 44px;
     border-radius: 12px;
@@ -78,8 +68,6 @@ h2 {
 .swatch:hover {
     transform: scale(1.2);
 }
-
-/* Contrast preview boxes */
 .contrast-box {
     padding: 18px;
     border-radius: 12px;
@@ -89,8 +77,6 @@ h2 {
     box-shadow: 0 6px 22px rgba(97, 218, 251, 0.5);
     user-select:none;
 }
-
-/* Zoomed image with smooth scale on hover */
 .zoomed {
     border-radius: 16px;
     box-shadow: 0 6px 24px rgba(97, 218, 251, 0.4);
@@ -101,36 +87,28 @@ h2 {
     transform: scale(1.3);
     cursor: zoom-in;
 }
-
-/* Crosshair pointer styling (white with glow) */
 .crosshair {
     stroke: white;
     stroke-width: 3;
     filter: drop-shadow(0 0 5px #61dafb);
 }
-
-/* Label */
 .label {
     font-weight: 700;
     font-size: 1.3rem;
     margin-bottom: 8px;
     color: #61dafb;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
-# ========== LOAD COLORS ==========
 @st.cache_data
 def load_colors():
     df = pd.read_csv("colors.csv")
-    df["LAB"] = df.apply(lambda r: color.rgb2lab(
-        np.array([[r[["R","G","B"]]]], dtype=np.uint8)/255.0)[0][0], axis=1)
+    df["LAB"] = df.apply(lambda r: color.rgb2lab(np.array([[r[["R","G","B"]]]], dtype=np.uint8)/255.0)[0][0], axis=1)
     return df
 
 colors = load_colors()
 
-# ========== FUNCTIONS ==========
 def rgb_to_lab(rgb):
     return color.rgb2lab(np.array([[rgb]], dtype=np.uint8)/255.0)[0][0]
 
@@ -187,7 +165,6 @@ def classify_tone(rgb):
 
     return tone
 
-# ========== MAIN APP ==========
 st.title("Unique Smart Color Detection")
 
 uploaded = st.sidebar.file_uploader("Upload your image (png, jpg)", type=["png", "jpg", "jpeg"])
@@ -197,25 +174,22 @@ if uploaded:
     img_np = np.array(img)
     h, w = img_np.shape[:2]
 
-    # Sidebar controls
     st.sidebar.markdown("<div class='label'>Select Pixel Coordinates</div>", unsafe_allow_html=True)
     x = st.sidebar.slider("X", 2, w - 3, w // 2)
     y = st.sidebar.slider("Y", 2, h - 3, h // 2)
 
-    # Extract 5x5 pixel region
     region = img_np[y-2:y+3, x-2:x+3]
     avg_color = region.mean(axis=(0, 1)).astype(int)
     R, G, B = avg_color
 
-    # Mark the pixel with crosshair on image
     marked = img.copy()
     draw = ImageDraw.Draw(marked)
     pointer_r = 8
-    draw.ellipse((x - pointer_r, y - pointer_r, x + pointer_r, y + pointer_r), fill='transparent', outline='#61dafb', width=4)
+    # FIXED: Use fill=None instead of 'transparent'
+    draw.ellipse((x - pointer_r, y - pointer_r, x + pointer_r, y + pointer_r), fill=None, outline='#61dafb', width=4)
     draw.line((x - pointer_r - 6, y, x + pointer_r + 6, y), fill='#61dafb', width=3)
     draw.line((x, y - pointer_r - 6, x, y + pointer_r + 6), fill='#61dafb', width=3)
 
-    # Layout
     col_img, col_info = st.columns([3, 2])
 
     with col_img:
@@ -234,7 +208,6 @@ if uploaded:
         top_colors = get_closest_colors(R, G, B, top_n=5)
         main_color_name = top_colors.iloc[0]['color_name']
 
-        # Color preview block
         text_color = 'white' if brightness((R, G, B)) < 130 else '#121212'
         st.markdown(f"""
             <div class="color-preview" style="background-color:{hex_val}; color:{text_color};">
@@ -243,7 +216,6 @@ if uploaded:
             </div>
         """, unsafe_allow_html=True)
 
-        # Tone and contrast
         tone = classify_tone((R, G, B))
         white_contrast, black_contrast = text_contrast((R, G, B))
         recommended_text = "White" if white_contrast > black_contrast else "Black"
@@ -251,40 +223,3 @@ if uploaded:
 
         st.markdown(f"### Color Tone")
         st.write(f"{tone}")
-
-        st.markdown(f"### Text Contrast Recommendation")
-        st.write(f"Use **{recommended_text}** text on this color for best readability (Contrast Ratio: {best_contrast:.2f})")
-
-        st.markdown("### Top 5 Closest Colors")
-        for _, row in top_colors.iterrows():
-            c_hex = get_hex((int(row["R"]), int(row["G"]), int(row["B"])))
-            cname = row["color_name"]
-            delta_e = row["DeltaE"]
-            st.markdown(f"""
-                <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
-                    <div class="swatch" style="background-color:{c_hex}; width:40px;"></div>
-                    <div>{cname} — ΔE: {delta_e:.2f}</div>
-                </div>
-            """, unsafe_allow_html=True)
-
-        # Complementary color
-        comp_rgb = [255 - R, 255 - G, 255 - B]
-        comp_hex = get_hex(comp_rgb)
-        st.markdown("### Complementary Color")
-        st.markdown(f'<div class="swatch" style="background-color:{comp_hex}; width:50px; margin-bottom:8px;"></div>', unsafe_allow_html=True)
-        st.markdown(f"HEX: {comp_hex}")
-
-        # Contrast preview boxes
-        st.markdown("### Contrast Preview")
-        st.markdown(f'<div class="contrast-box" style="background-color:{hex_val}; color:white;">White Text</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="contrast-box" style="background-color:{hex_val}; color:black;">Black Text</div>', unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-else:
-    st.sidebar.info("Upload an image to get started.")
-    st.markdown("""
-    <div style="margin-top:80px; text-align:center; font-size:1.5rem; color:#888;">
-        Upload an image from the sidebar<br>to detect and analyze colors.
-    </div>
-    """, unsafe_allow_html=True)
