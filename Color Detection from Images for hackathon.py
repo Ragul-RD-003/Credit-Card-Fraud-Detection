@@ -3,14 +3,16 @@ import pandas as pd
 import numpy as np
 from PIL import Image, ImageDraw
 from skimage import color
+from sklearn.cluster import KMeans
+from io import BytesIO
 from streamlit_image_coordinates import streamlit_image_coordinates
 
-st.set_page_config(page_title="Unique Clickable Color Detector", layout="wide")
+st.set_page_config("Smart Color Detector", layout="wide")
 
 @st.cache_data
 def load_colors():
-    df = pd.read_csv("colors.csv")  # Your CSV with columns: color_name, R, G, B
-    df["LAB"] = df.apply(lambda r: color.rgb2lab(np.array([[r[["R","G","B"]]]], dtype=np.uint8)/255.0)[0][0], axis=1)
+    df = pd.read_csv("colors.csv")  # columns: color_name, R, G, B
+    df["LAB"] = df.apply(lambda r: color.rgb2lab(np.array([[r[["R", "G", "B"]]]], dtype=np.uint8)/255.0)[0][0], axis=1)
     return df
 
 colors = load_colors()
@@ -18,12 +20,11 @@ colors = load_colors()
 def rgb_to_lab(rgb):
     return color.rgb2lab(np.array([[rgb]], dtype=np.uint8)/255.0)[0][0]
 
-def get_closest_colors(R, G, B, top_n=3):
+def get_closest_color(R, G, B):
     input_lab = rgb_to_lab([R, G, B])
     distances = colors["LAB"].apply(lambda lab: np.linalg.norm(input_lab - lab))
-    closest = colors.loc[distances.nsmallest(top_n).index]
-    closest = closest.assign(DeltaE=distances[closest.index])
-    return closest
+    closest = colors.loc[distances.idxmin()]
+    return closest["color_name"]
 
 def get_hex(rgb):
     return '#{:02X}{:02X}{:02X}'.format(*rgb)
@@ -32,66 +33,73 @@ def brightness(rgb):
     r, g, b = rgb
     return np.sqrt(0.299*r**2 + 0.587*g**2 + 0.114*b**2)
 
-st.title("Unique Clickable Color Detector")
+def extract_palette(img_np, n_colors=5):
+    pixels = img_np.reshape(-1, 3)
+    kmeans = KMeans(n_clusters=n_colors, random_state=42).fit(pixels)
+    palette = kmeans.cluster_centers_.astype(int)
+    return palette
 
-uploaded = st.file_uploader("Upload an image (png/jpg/jpeg)", type=["png", "jpg", "jpeg"])
+def generate_color_info(name, rgb, hex_val):
+    content = f"Color Name: {name}\nRGB: {rgb}\nHEX: {hex_val}"
+    return BytesIO(content.encode())
+
+st.title("Smart Color Detection App")
+st.caption("Tip: Upload an image and click anywhere to detect the color!")
+
+uploaded = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg"])
 
 if uploaded:
     img = Image.open(uploaded).convert("RGB")
     img_np = np.array(img)
     h, w = img_np.shape[:2]
 
-    coords = streamlit_image_coordinates(img, key="image_coords")
+    coords = streamlit_image_coordinates(img, key="colorclick")
 
     if coords:
         x, y = coords["x"], coords["y"]
-        # Clamp coords to avoid edges
         x = max(2, min(w - 3, x))
         y = max(2, min(h - 3, y))
 
-        # Average color in 5x5 region
         region = img_np[y-2:y+3, x-2:x+3]
         avg_color = region.mean(axis=(0, 1)).astype(int)
         R, G, B = avg_color
 
-        # Draw pointer on image copy
         marked = img.copy()
         draw = ImageDraw.Draw(marked)
-        pointer_r = 8
-        draw.ellipse((x - pointer_r, y - pointer_r, x + pointer_r, y + pointer_r), outline='#61dafb', width=4)
-        draw.line((x - pointer_r - 6, y, x + pointer_r + 6, y), fill='#61dafb', width=3)
-        draw.line((x, y - pointer_r - 6, x, y + pointer_r + 6), fill='#61dafb', width=3)
+        draw.ellipse((x - 6, y - 6, x + 6, y + 6), outline='red', width=3)
+
+        zoom_img = Image.fromarray(region).resize((120, 120), Image.NEAREST)
+        hex_val = get_hex((R, G, B))
+        color_name = get_closest_color(R, G, B)
+        text_color = 'black' if brightness((R, G, B)) > 160 else 'white'
 
         col1, col2 = st.columns([3, 2])
         with col1:
-            st.image(marked, caption=f"Selected pixel at ({x}, {y})", use_column_width=True)
-            zoom_img = Image.fromarray(region).resize((140, 140), Image.NEAREST)
-            st.image(zoom_img, caption="Zoomed 5x5 Pixel Region", width=140)
-
+            st.image(marked, use_column_width=True, caption=f"Selected pixel at ({x}, {y})")
+            st.image(zoom_img, caption="Zoomed 5×5 Region", width=120)
         with col2:
-            hex_val = get_hex((R, G, B))
-            top_colors = get_closest_colors(R, G, B, top_n=3)
-            main_color_name = top_colors.iloc[0]['color_name']
-
-            text_color = 'white' if brightness((R, G, B)) < 130 else '#121212'
-
             st.markdown(f"""
-                <div style="background-color:{hex_val}; color:{text_color}; 
-                border-radius: 16px; padding: 30px; text-align: center; font-weight: 900; font-size: 2rem;
-                box-shadow: 0 8px 20px rgba(97, 218, 251, 0.6); user-select:none;">
-                    {main_color_name}<br>
-                    <small>Hex: {hex_val}</small><br>
-                    <small>RGB: ({R}, {G}, {B})</small>
+                <div style="background-color:{hex_val}; padding:25px; border-radius:12px; text-align:center;
+                            color:{text_color}; font-weight:bold; font-size:24px;">
+                    {color_name}<br>
+                    <span style='font-size:16px;'>RGB: ({R}, {G}, {B})</span><br>
+                    <span style='font-size:16px;'>HEX: {hex_val}</span>
                 </div>
             """, unsafe_allow_html=True)
 
-            st.write("### Closest Matches:")
-            for i, row in top_colors.iterrows():
-                c_hex = get_hex((row["R"], row["G"], row["B"]))
-                st.markdown(f"- **{row['color_name']}** - {c_hex}")
+            st.download_button("Download Color Info", data=generate_color_info(color_name, (R, G, B), hex_val),
+                               file_name="color_info.txt")
 
     else:
-        # No click yet, show just the image to click
-        st.image(img, caption="Click on the image to select a pixel", use_column_width=True)
+        st.image(img, caption="Click on the image to detect color", use_column_width=True)
+
+    # Show color palette
+    st.subheader("Top 5 Dominant Colors in Image")
+    palette = extract_palette(img_np)
+    palette_html = "".join([
+        f"<div style='background-color:{get_hex(c)}; height:50px; flex:1; text-align:center; color:white;'>{get_hex(c)}</div>"
+        for c in palette
+    ])
+    st.markdown(f"<div style='display:flex;'>{palette_html}</div>", unsafe_allow_html=True)
 else:
-    st.info("Upload an image to start detecting colors.")
+    st.info("Upload an image file to begin detecting colors.")
