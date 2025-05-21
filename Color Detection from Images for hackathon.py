@@ -5,11 +5,11 @@ from PIL import Image, ImageDraw
 from skimage import color
 from streamlit_image_coordinates import streamlit_image_coordinates
 
-st.set_page_config(page_title="Clickable Color Detector", layout="wide")
+st.set_page_config(page_title="Unique Clickable Color Detector", layout="wide")
 
 @st.cache_data
 def load_colors():
-    df = pd.read_csv("colors.csv")
+    df = pd.read_csv("colors.csv")  # Your CSV with columns: color_name, R, G, B
     df["LAB"] = df.apply(lambda r: color.rgb2lab(np.array([[r[["R","G","B"]]]], dtype=np.uint8)/255.0)[0][0], axis=1)
     return df
 
@@ -32,33 +32,33 @@ def brightness(rgb):
     r, g, b = rgb
     return np.sqrt(0.299*r**2 + 0.587*g**2 + 0.114*b**2)
 
-st.title("Clickable Color Detector")
+st.title("Unique Clickable Color Detector")
 
-uploaded = st.file_uploader("Upload image (png/jpg/jpeg)", type=["png", "jpg", "jpeg"])
+uploaded = st.file_uploader("Upload an image (png/jpg/jpeg)", type=["png", "jpg", "jpeg"])
 
 if uploaded:
     img = Image.open(uploaded).convert("RGB")
     img_np = np.array(img)
     h, w = img_np.shape[:2]
 
-    st.markdown("**Click or tap on the image below to select a pixel:**")
     coords = streamlit_image_coordinates(img, key="image_coords")
 
     if coords:
         x, y = coords["x"], coords["y"]
-
-        # Clamp coordinates to avoid edges
+        # Clamp coords to avoid edges
         x = max(2, min(w - 3, x))
         y = max(2, min(h - 3, y))
 
+        # Average color in 5x5 region
         region = img_np[y-2:y+3, x-2:x+3]
         avg_color = region.mean(axis=(0, 1)).astype(int)
         R, G, B = avg_color
 
+        # Draw pointer on image copy
         marked = img.copy()
         draw = ImageDraw.Draw(marked)
         pointer_r = 8
-        draw.ellipse((x - pointer_r, y - pointer_r, x + pointer_r, y + pointer_r), fill=None, outline='#61dafb', width=4)
+        draw.ellipse((x - pointer_r, y - pointer_r, x + pointer_r, y + pointer_r), outline='#61dafb', width=4)
         draw.line((x - pointer_r - 6, y, x + pointer_r + 6, y), fill='#61dafb', width=3)
         draw.line((x, y - pointer_r - 6, x, y + pointer_r + 6), fill='#61dafb', width=3)
 
@@ -91,7 +91,7 @@ if uploaded:
                 st.markdown(f"- **{row['color_name']}** - {c_hex}")
 
     else:
-        st.info("Click on the image to pick a pixel and detect its color.")
-
+        # No click yet, show just the image to click
+        st.image(img, caption="Click on the image to select a pixel", use_column_width=True)
 else:
     st.info("Upload an image to start detecting colors.")
